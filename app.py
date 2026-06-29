@@ -1,252 +1,457 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import glob
+import os
+from openpyxl import load_workbook
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+import io
 
+# Cấu hình trang Streamlit
 st.set_page_config(
-    page_title="Đối chiếu dư nợ cơ cấu",
+    page_title="Hệ thống Quản lý Tiêu chí Chất lượng Vận hành Tín dụng",
+    page_icon="📊",
     layout="wide"
 )
 
-st.title("Đối chiếu dư nợ cơ cấu T4 - T5")
-
+st.title("📊 Hệ thống Xử lý & Phân tích Dữ liệu Tín dụng")
 st.markdown("---")
 
-col1,col2=st.columns(2)
-
-with col1:
-
-    st.subheader("Tháng hiện tại")
-
-    crm32_nay=st.file_uploader(
-        "CRM32",
-        type=["xls","xlsx"],
-        accept_multiple_files=True,
-        key="crm32nay"
-    )
-
-    crm4_nay=st.file_uploader(
-        "CRM4",
-        type=["xls","xlsx"],
-        accept_multiple_files=True,
-        key="crm4nay"
-    )
-
-with col2:
-
-    st.subheader("Tháng trước")
-
-    crm32_truoc=st.file_uploader(
-        "CRM32 ",
-        type=["xls","xlsx"],
-        accept_multiple_files=True,
-        key="crm32truoc"
-    )
-
-    crm4_truoc=st.file_uploader(
-        "CRM4 ",
-        type=["xls","xlsx"],
-        accept_multiple_files=True,
-        key="crm4truoc"
-    )
-
-st.markdown("---")
-
-dprr_file=st.file_uploader(
-    "Upload DPRR",
-    type=["xlsx"]
+# Tạo Sidebar điều hướng giữa 4 tiêu chí
+menu = st.sidebar.radio(
+    "CHỌN TIÊU CHÍ XỬ LÝ DỮ LIỆU",
+    [
+        "Tiêu chí 1: Dư nợ cơ cấu",
+        "Tiêu chí 2: Miễn giảm lãi",
+        "Tiêu chí 3: Lũy kế nợ quá hạn",
+        "Tiêu chí 4: Tín dụng thanh khoản thấp"
+    ]
 )
 
-if st.button("Thực hiện"):
+# Hàm bổ trợ để chuyển đổi DataFrame sang file Excel phục vụ nút Tải về
+def to_excel_download(df, sheet_name="Sheet1"):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+    return output.getvalue()
 
-    if (
-        len(crm32_nay)==0
-        or len(crm4_nay)==0
-        or len(crm32_truoc)==0
-        or len(crm4_truoc)==0
-        or dprr_file is None
-    ):
-        st.error("Thiếu file")
-        st.stop()
 
-    def read_excel(files):
+# ==========================================
+# TIÊU CHÍ 1: DƯ NỢ CƠ CẤU
+# ==========================================
+if menu == "Tiêu chí 1: Dư nợ cơ cấu":
+    st.header("📌 Tiêu chí 1: Đối chiếu & Phân bổ Dư nợ cơ cấu")
+    st.info("💡 Điểm cải tiến: Bạn có thể đăng tải đồng thời nhiều file mẫu CRM32 và CRM4 cho cả tháng này và tháng trước.")
 
-        dfs=[]
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("🗓️ Dữ liệu Tháng này (T)")
+        files_crm32_nay = st.file_uploader("Upload các file CRM32 Tháng này (.xls, .xlsx)", accept_multiple_files=True, key="t1_m32_n")
+        files_crm4_nay = st.file_uploader("Upload các file CRM4 Tháng này (.xls, .xlsx)", accept_multiple_files=True, key="t1_m4_n")
+    
+    with col2:
+        st.subheader("🗓️ Dữ liệu Tháng trước (T-1)")
+        files_crm32_truoc = st.file_uploader("Upload các file CRM32 Tháng trước (.xls, .xlsx)", accept_multiple_files=True, key="t1_m32_t")
+        files_crm4_truoc = st.file_uploader("Upload các file CRM4 Tháng trước (.xls, .xlsx)", accept_multiple_files=True, key="t1_m4_t")
 
-        for f in files:
+    st.subheader("📂 Dữ liệu Phụ trợ")
+    file_sddp = st.file_uploader("Upload file Số dư dự phòng DPRR_T5.xlsx", key="t1_sddp")
 
-            if f.name.endswith(".xls"):
-                df=pd.read_excel(
-                    f,
-                    engine="xlrd",
-                    dtype=str
-                )
+    if st.button("🚀 Chạy Xử lý Tiêu chí 1"):
+        if files_crm32_nay and files_crm4_nay and files_crm32_truoc and files_crm4_truoc and file_sddp:
+            with st.spinner("Đang tính toán dư nợ cơ cấu..."):
+                # Đọc cấu trúc Tháng này
+                df_crm32_nay = pd.concat([pd.read_excel(f, engine="xlrd" if f.name.endswith('.xls') else "openpyxl", dtype=str) for f in files_crm32_nay], ignore_index=True)
+                df_crm4_nay = pd.concat([pd.read_excel(f, engine="xlrd" if f.name.endswith('.xls') else "openpyxl", dtype=str) for f in files_crm4_nay], ignore_index=True)
+                
+                # Đọc cấu trúc Tháng trước
+                df_crm32_truoc = pd.concat([pd.read_excel(f, engine="xlrd" if f.name.endswith('.xls') else "openpyxl", dtype=str) for f in files_crm32_truoc], ignore_index=True)
+                df_crm4_truoc = pd.concat([pd.read_excel(f, engine="xlrd" if f.name.endswith('.xls') else "openpyxl", dtype=str) for f in files_crm4_truoc], ignore_index=True)
+
+                # Xử lý tháng này
+                df_crm32_cc_nay = df_crm32_nay[df_crm32_nay["SCHM_DESC"].astype(str).str.upper().str.replace(r"\s+", " ", regex=True).str.contains("CO CAU", na=False)].drop_duplicates(subset=["CUSTSEQLN"])
+                df_join_nay = df_crm32_cc_nay.merge(df_crm4_nay, left_on="CUSTSEQLN", right_on="CIF_KH_VAY", how="inner")
+                df_join_nay["DU_NO_PHAN_BO_QUY_DOI"] = pd.to_numeric(df_join_nay["DU_NO_PHAN_BO_QUY_DOI"], errors="coerce").fillna(0)
+                
+                df_kq_nay = df_join_nay.groupby(["CIF_KH_VAY", "SCHM_DESC","NHOM_NO"], as_index=False)["DU_NO_PHAN_BO_QUY_DOI"].sum().rename(columns={"DU_NO_PHAN_BO_QUY_DOI": "TONG_DU_NO_THANG_5","NHOM_NO":"NHOM_NO_T5"})
+                df_kh = df_join_nay[["CIF_KH_VAY", "KHACH_HANG"]].drop_duplicates("CIF_KH_VAY")
+                df_kq_nay = df_kq_nay.merge(df_kh, on="CIF_KH_VAY", how="left")
+
+                # Xử lý tháng trước
+                df_crm32_cc_truoc = df_crm32_truoc[df_crm32_truoc["SCHM_DESC"].astype(str).str.upper().str.replace(r"\s+", " ", regex=True).str.contains("CO CAU", na=False)].drop_duplicates(subset=["CUSTSEQLN"])
+                df_join_truoc = df_crm32_cc_truoc.merge(df_crm4_truoc, left_on="CUSTSEQLN", right_on="CIF_KH_VAY", how="inner")
+                df_join_truoc["DU_NO_PHAN_BO_QUY_DOI"] = pd.to_numeric(df_join_truoc["DU_NO_PHAN_BO_QUY_DOI"], errors="coerce").fillna(0)
+                
+                df_kq_truoc = df_join_truoc.groupby(["CIF_KH_VAY", "SCHM_DESC", "NHOM_NO"], as_index=False)["DU_NO_PHAN_BO_QUY_DOI"].sum().rename(columns={"DU_NO_PHAN_BO_QUY_DOI": "TONG_DU_NO_THANG_4","NHOM_NO":"NHOM_NO_T4"})
+                df_kh_trc = df_join_truoc[["CIF_KH_VAY", "KHACH_HANG"]].drop_duplicates("CIF_KH_VAY")
+                df_kq_truoc = df_kq_truoc.merge(df_kh_trc, on="CIF_KH_VAY", how="left")
+
+                # Đối chiếu kết quả
+                df_kq_nay_rename = df_kq_nay.rename(columns={"CIF_KH_VAY": "CIF_KH_VAY_NAY","SCHM_DESC": "SCHM_DESC_NAY", "KHACH_HANG":"TEN_KH_T5"})
+                df_kq_truoc_rename = df_kq_truoc.rename(columns={"CIF_KH_VAY": "CIF_KH_VAY_TRUOC","SCHM_DESC": "SCHM_DESC_TRUOC", "KHACH_HANG":"TEN_KH_T4"})
+                
+                df_doi_chieu = df_kq_nay_rename.merge(df_kq_truoc_rename, left_on=["CIF_KH_VAY_NAY", "SCHM_DESC_NAY"], right_on=["CIF_KH_VAY_TRUOC", "SCHM_DESC_TRUOC"], how="outer").fillna(0)
+                df_doi_chieu["CHENH_LECH"] = df_doi_chieu["TONG_DU_NO_THANG_5"] - df_doi_chieu["TONG_DU_NO_THANG_4"]
+                df_doi_chieu = df_doi_chieu.sort_values("CHENH_LECH", ascending=False)
+
+                # Đọc Map số dư dự phòng
+                df_sddp = pd.read_excel(file_sddp, dtype={"CIF": str})
+                df_sddp["PHAT_SINH_NO"] = pd.to_numeric(df_sddp["PHAT_SINH_NO"], errors="coerce").fillna(0)
+                
+                df_doi_chieu["CIF_KH_VAY_NAY"] = df_doi_chieu["CIF_KH_VAY_NAY"].astype(str).str.strip().str.replace(".0","", regex=False)
+                df_sddp["CIF"] = df_sddp["CIF"].astype(str).str.strip().str.replace(".0","", regex=False)
+                
+                df_sddp_sum = df_sddp.groupby("CIF")["PHAT_SINH_NO"].sum()
+                df_doi_chieu["DPRR"] = df_doi_chieu["CIF_KH_VAY_NAY"].map(df_sddp_sum)
+
+                st.success("🎉 Xử lý thành công!")
+                st.dataframe(df_doi_chieu)
+
+                # Cho phép người dùng tải xuống kết quả dưới định dạng excel
+                excel_data = to_excel_download(df_doi_chieu, sheet_name="DU_NO_CO_CAU")
+                st.download_button("📥 Tải File Kết Quả Excel", data=excel_data, file_name="DU_NO_CO_CAU_OUTPUT.xlsx")
+        else:
+            st.error("⚠️ Vui lòng cung cấp đầy đủ các file đầu vào bắt buộc!")
+
+# ==========================================
+# TIÊU CHÍ 2: MIỄN GIẢM LÃI
+# ==========================================
+elif menu == "Tiêu chí 2: Miễn giảm lãi":
+    st.header("📌 Tiêu chí 2: Tổng hợp dữ liệu Miễn giảm lãi")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        file_hlawint = st.file_uploader("Upload file Màn hình HLAWINT (.xlsx)", key="t2_hl")
+        file_noibang = st.file_uploader("Upload file Thu nợ Nội bảng (.xlsx)", key="t2_nb")
+    with col2:
+        file_ngoaibang = st.file_uploader("Upload file Thu nợ Ngoại bảng (.xlsx)", key="t2_ngb")
+        file_thulai = st.file_uploader("Upload file Thu lãi (.xlsx)", key="t2_tl")
+
+    if st.button("🚀 Chạy Xử lý Tiêu chí 2"):
+        if file_hlawint and file_noibang and file_ngoaibang and file_thulai:
+            with st.spinner("Đang tổng hợp dữ liệu..."):
+                # 1. Khởi tạo dữ liệu từ HLAWINT
+                df = pd.read_excel(file_hlawint, dtype={"CIF_ID": str})
+                cols = ['SOL_ID','SOL_DESC','CIF_ID','CUST_NAME','INTAMT_VND','LY_DO']
+                df = df[cols]
+                
+                df_unique = df.drop_duplicates(subset='CIF_ID')
+                sum_intamt = df.groupby('CIF_ID', as_index=False)['INTAMT_VND'].sum()
+                result = pd.merge(sum_intamt, df_unique[['CIF_ID','SOL_ID','SOL_DESC','CUST_NAME','LY_DO']], on='CIF_ID', how='left')
+
+                # 2. Map file ngoại bảng
+                dprr = pd.read_excel(file_ngoaibang, dtype={"CIF 9 SO": str})
+                dprr_sum = dprr.groupby('CIF 9 SO', as_index=False)['Số tiền thu'].sum().rename(columns={'Số tiền thu':'Thu_ngoai_bang', 'CIF 9 SO':'CIF_ID'})
+                result = result.merge(dprr_sum, on='CIF_ID', how='left')
+
+                # 3. Map file nội bảng (Thu gốc)
+                thu_goc = pd.read_excel(file_noibang, dtype={"CIF 9 SO": str})
+                thu_goc_sum = thu_goc.groupby('CIF 9 SO', as_index=False)['Số tiền thu'].sum().rename(columns={'Số tiền thu':'Thu_goc_trong_thang', 'CIF 9 SO':'CIF_ID'})
+                result = result.merge(thu_goc_sum, on='CIF_ID', how='left')
+
+                # 4. Map file thu lãi
+                thu_lai = pd.read_excel(file_thulai, dtype={"CIF 9 SO": str})
+                thu_lai_sum = thu_lai.groupby('CIF 9 SO', as_index=False)['Số tiền thu'].sum().rename(columns={'Số tiền thu':'Thu_lai_trong_thang', 'CIF 9 SO':'CIF_ID'})
+                result = result.merge(thu_lai_sum, on='CIF_ID', how='left')
+
+                # Tính tổng thu và sinh cột theo form báo cáo định sẵn
+                result['Tong_thu'] = result['Thu_goc_trong_thang'].fillna(0) + result['Thu_lai_trong_thang'].fillna(0) + result['Thu_ngoai_bang'].fillna(0)
+                
+                new_cols = ['Thu_thieu_lai_trong_han', 'Mien_goc', 'Mien_lai_trong_han', 'Mien_lai_qua_han', 'Mien_lai_phat', 'Ghi_chu', 'Con_ton', 'Ty_quan', 'So_thu_phi', 'note']
+                for col in new_cols:
+                    result[col] = 0
+
+                result['Tham_quyen_phe_duyet'] = result['LY_DO']
+                muc6 = df.groupby('CIF_ID')['INTAMT_VND'].sum().reset_index().rename(columns={'INTAMT_VND': 'muc6'})
+                result = result.merge(muc6, on='CIF_ID', how='left')
+                result['check_tongMGL'] = (result['Mien_goc'] + result['Mien_lai_trong_han'] + result['Mien_lai_qua_han'] + result['Mien_lai_phat']) - result['muc6']
+
+                # Sắp xếp đúng cấu trúc cột đầu ra mẫu
+                order_cols = ['SOL_ID','SOL_DESC','CIF_ID','CUST_NAME','Tong_thu','Thu_ngoai_bang','Thu_goc_trong_thang','Thu_lai_trong_thang','Thu_thieu_lai_trong_han','Mien_goc','Mien_lai_trong_han','Mien_lai_qua_han','Mien_lai_phat','Tham_quyen_phe_duyet','Ghi_chu','Con_ton','Ty_quan','So_thu_phi','muc6','check_tongMGL','note']
+                result = result[order_cols]
+
+                st.success("🎉 Tạo bảng Miễn giảm lãi thành công!")
+                st.dataframe(result)
+                
+                excel_data = to_excel_download(result, sheet_name="XulyNo")
+                st.download_button("📥 Tải Báo Cáo Xử Lý Nợ (.xlsx)", data=excel_data, file_name="XulyNo_T5_Output.xlsx")
+        else:
+            st.error("⚠️ Vui lòng tải lên đầy đủ các file dữ liệu phục vụ tính toán!")
+
+# ==========================================
+# TIÊU CHÍ 3: LŨY KẾ NỢ QUÁ HẠN
+# ==========================================
+elif menu == "Tiêu chí 3: Lũy kế nợ quá hạn":
+    st.header("📌 Tiêu chí 3: Theo dõi biến động Lũy kế Nợ quá hạn qua các tháng")
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Cấu hình chuỗi thời gian")
+    thang_bat_dau = st.sidebar.text_input("Từ tháng (YYYY-MM)", "2026-01")
+    thang_ket_thuc = st.sidebar.text_input("Đến tháng (YYYY-MM)", "2026-05")
+
+    # Sinh danh sách các tháng động
+    ds_thang = pd.period_range(start=thang_bat_dau, end=thang_ket_thuc, freq="M").astype(str).tolist()
+    
+    st.markdown(f"**Yêu cầu nạp file dữ liệu CRM32 cho từng tháng trong chuỗi:** `{ds_thang}`")
+    
+    uploaded_months_data = {}
+    for m in ds_thang:
+        uploaded_months_data[m] = st.file_uploader(f"Tháng {m}: Nạp toàn bộ file CRM32 (.xls, .xlsx)", accept_multiple_files=True, key=f"t3_{m}")
+
+    if st.button("🚀 Chạy Tính Toán Lũy Kế"):
+        all_month_data = []
+        valid = True
+        
+        for m in ds_thang:
+            if not uploaded_months_data[m]:
+                st.warning(f"Chưa có tệp dữ liệu cho tháng {m}!")
+                valid = False
             else:
-                df=pd.read_excel(
-                    f,
-                    engine="openpyxl",
-                    dtype=str
-                )
+                for f in uploaded_months_data[m]:
+                    df_temp = pd.read_excel(f)
+                    df_temp.columns = df_temp.columns.str.strip().str.upper()
+                    df_temp["TEN_FILE"] = f.name
+                    df_temp["THANG"] = m
+                    all_month_data.append(df_temp)
+                    
+        if valid and len(all_month_data) > 0:
+            with st.spinner("Hệ thống đang tổng hợp dữ liệu chuỗi thời gian..."):
+                df = pd.concat(all_month_data, ignore_index=True)
+                
+                col_brcd, col_chi_nhanh, col_du_no, col_nhom_no, col_ngay_giai_ngan = "BRCD", "CHI_NHANH", "DU_NO_QUY_DOI", "NHOM_NO_THEO_CIF", "NGAY_GIAI_NGAN"
+                
+                df[col_brcd] = df[col_brcd].astype(str).str.strip()
+                df[col_chi_nhanh] = df[col_chi_nhanh].astype(str).str.strip()
+                df[col_du_no] = pd.to_numeric(df[col_du_no], errors="coerce").fillna(0)
+                df[col_nhom_no] = pd.to_numeric(df[col_nhom_no], errors="coerce")
+                df[col_ngay_giai_ngan] = pd.to_datetime(df[col_ngay_giai_ngan], errors="coerce", dayfirst=True)
 
-            dfs.append(df)
+                ds_bao_cao_thang = []
+                for m in ds_thang:
+                    df_thang = df[df["THANG"] == m].copy()
+                    ngay_bao_cao = pd.to_datetime(m + "-01") + pd.offsets.MonthEnd(0)
+                    df_thang["SO_NGAY_TU_GIAI_NGAN_DEN_BAO_CAO"] = (ngay_bao_cao - df_thang[col_ngay_giai_ngan]).dt.days
+                    df_qh = df_thang[df_thang[col_nhom_no].isin([2, 3, 4, 5])].copy()
 
-        return pd.concat(dfs,ignore_index=True)
+                    giai_ngan_3_thang_qh = df_qh[(df_qh["SO_NGAY_TU_GIAI_NGAN_DEN_BAO_CAO"] >= 0) & (df_qh["SO_NGAY_TU_GIAI_NGAN_DEN_BAO_CAO"] <= 90)].groupby([col_brcd, col_chi_nhanh], as_index=False).agg(GIAI_NGAN_3_THANG_QH=(col_du_no, "sum"))
+                    giai_ngan_6_thang_qh = df_qh[(df_qh["SO_NGAY_TU_GIAI_NGAN_DEN_BAO_CAO"] >= 0) & (df_qh["SO_NGAY_TU_GIAI_NGAN_DEN_BAO_CAO"] <= 180)].groupby([col_brcd, col_chi_nhanh], as_index=False).agg(GIAI_NGAN_6_THANG_QH=(col_du_no, "sum"))
+                    base = df_thang.groupby([col_brcd, col_chi_nhanh], as_index=False).agg(TONG_DU_NO_THANG=(col_du_no, "sum"))
 
+                    res_m = base.merge(giai_ngan_3_thang_qh, on=[col_brcd, col_chi_nhanh], how="left").merge(giai_ngan_6_thang_qh, on=[col_brcd, col_chi_nhanh], how="left").fillna(0)
+                    res_m["THANG"] = m
+                    res_m["NGAY_BAO_CAO"] = ngay_bao_cao
+                    ds_bao_cao_thang.append(res_m)
 
-    df_crm32_nay=read_excel(crm32_nay)
-    df_crm4_nay=read_excel(crm4_nay)
+                bao_cao_all_month = pd.concat(ds_bao_cao_thang, ignore_index=True)
+                bao_cao_all_month["THANG_DATE"] = pd.to_datetime(bao_cao_all_month["THANG"] + "-01")
+                bao_cao_all_month = bao_cao_all_month.sort_values(by=[col_brcd, "THANG_DATE"])
 
-    df_crm32_truoc=read_excel(crm32_truoc)
-    df_crm4_truoc=read_excel(crm4_truoc)
+                # Cấp số cộng lũy kế tịnh tiến
+                bao_cao_all_month["LUY_KE_GIAI_NGAN_3_THANG_QH"] = bao_cao_all_month.groupby([col_brcd, col_chi_nhanh"])["GIAI_NGAN_3_THANG_QH"].cumsum()
+                bao_cao_all_month["LUY_KE_GIAI_NGAN_6_THANG_QH"] = bao_cao_all_month.groupby([col_brcd, col_chi_nhanh"])["GIAI_NGAN_6_THANG_QH"].cumsum()
 
-    #######################################################
-    ## Hàm xử lý
-    #######################################################
+                # Đổi trục Pivot làm báo cáo ngang gọn đẹp
+                pivot_luy_ke = bao_cao_all_month.pivot_table(index=[col_brcd, col_chi_nhanh], columns="THANG", values=["GIAI_NGAN_3_THANG_QH", "GIAI_NGAN_6_THANG_QH", "LUY_KE_GIAI_NGAN_3_THANG_QH", "LUY_KE_GIAI_NGAN_6_THANG_QH"], aggfunc="sum")
+                pivot_luy_ke.columns = [f"{ct}_{th}" for ct, th in pivot_luy_ke.columns]
+                pivot_luy_ke = pivot_luy_ke.reset_index()
 
-    def xu_ly(df32,df4,thang):
+                st.success("📊 Bảng dữ liệu biến động ngang thu được:")
+                st.dataframe(pivot_luy_ke)
 
-        df32=df32.copy()
-        df4=df4.copy()
+                # Xuất Workbook đa dạng Sheet cho khách hàng download
+                out_bytes = io.BytesIO()
+                with pd.ExcelWriter(out_bytes, engine="openpyxl") as wr:
+                    bao_cao_all_month.to_excel(wr, sheet_name="Data luy ke theo thang", index=False)
+                    pivot_luy_ke.to_excel(wr, sheet_name="Bang ngang luy ke", index=False)
+                
+                st.download_button("📥 Tải File Lũy Kế Đa Bản Tấm (.xlsx)", data=out_bytes.getvalue(), file_name=f"Luy_Ke_Qua_Han_{thang_bat_dau}_To_{thang_ket_thuc}.xlsx")
 
-        df_cc=(
-            df32[
-                df32["SCHM_DESC"]
-                .astype(str)
-                .str.upper()
-                .str.replace(r"\s+"," ",regex=True)
-                .str.contains("CO CAU",na=False)
-            ]
-            .drop_duplicates(subset=["CUSTSEQLN"])
-        )
+# ==========================================
+# TIÊU CHÍ 4: THANH KHOẢN THẤP & AUTO STYLING EXCEL
+# ==========================================
+elif menu == "Tiêu chí 4: Tín dụng thanh khoản thấp":
+    st.header("📌 Tiêu chí 4: So sánh & Tự động tô màu Báo cáo Thanh khoản thấp")
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Thiết lập tháng đánh giá")
+    thang_t_input = st.sidebar.text_input("Nhập tháng T (YYYY-MM)", "2026-04")
 
-        df_join=df_cc.merge(
-            df4,
-            left_on="CUSTSEQLN",
-            right_on="CIF_KH_VAY",
-            how="inner"
-        )
+    # Tự quy đổi tháng liên kề liền trước
+    thang_t_date = pd.to_datetime(thang_t_input + "-01")
+    thang_t_1_date = thang_t_date - pd.DateOffset(months=1)
+    thang_t = thang_t_date.strftime("%Y-%m")
+    thang_t_1 = thang_t_1_date.strftime("%Y-%m")
 
-        df_join["DU_NO_PHAN_BO_QUY_DOI"]=pd.to_numeric(
-            df_join["DU_NO_PHAN_BO_QUY_DOI"],
-            errors="coerce"
-        ).fillna(0)
+    st.write(f"🔄 **Hệ thống tự động thiết lập cặp so sánh:** Tháng T: **{thang_t}** với Tháng T-1: **{thang_t_1}**")
 
-        df=(
-            df_join
-            .groupby(
-                ["CIF_KH_VAY","SCHM_DESC","NHOM_NO"],
-                as_index=False
-            )["DU_NO_PHAN_BO_QUY_DOI"]
-            .sum()
-        )
+    col1, col2 = st.columns(2)
+    with col1:
+        files_t = st.file_uploader(f"Upload các file CRM32 của Tháng T ({thang_t})", accept_multiple_files=True, key="t4_t")
+    with col2:
+        files_t_1 = st.file_uploader(f"Upload các file CRM32 của Tháng T-1 ({thang_t_1})", accept_multiple_files=True, key="t4_t1")
 
-        df=df.rename(
-            columns={
-                "DU_NO_PHAN_BO_QUY_DOI":f"TONG_DU_NO_THANG_{thang}",
-                "NHOM_NO":f"NHOM_NO_T{thang}"
-            }
-        )
+    if st.button("🚀 Chạy Đối Chiếu & Thiết Kế Form Đẹp"):
+        if files_t and files_t_1:
+            with st.spinner("Đang biên tập & thiết kế format bảng Excel tự động..."):
+                # Đọc xử lý tích hợp dữ liệu
+                df_t = pd.concat([pd.read_excel(f) for f in files_t], ignore_index=True)
+                df_t["THANG"] = thang_t
+                df_t_1 = pd.concat([pd.read_excel(f) for f in files_t_1], ignore_index=True)
+                df_t_1["THANG"] = thang_t_1
 
-        kh=df_join[
-            ["CIF_KH_VAY","KHACH_HANG"]
-        ].drop_duplicates("CIF_KH_VAY")
+                df = pd.concat([df_t_1, df_t], ignore_index=True)
+                df.columns = df.columns.str.strip().str.upper()
 
-        df=df.merge(
-            kh,
-            on="CIF_KH_VAY",
-            how="left"
-        )
+                col_brcd, col_chi_nhanh, col_du_no, col_nhom_no, col_ngay_giai_ngan = "BRCD", "CHI_NHANH", "DU_NO_QUY_DOI", "NHOM_NO_THEO_CIF", "NGAY_GIAI_NGAN"
+                df[col_brcd] = df[col_brcd].astype(str).str.strip()
+                df[col_chi_nhanh] = df[col_chi_nhanh].astype(str).str.strip()
+                df[col_du_no] = pd.to_numeric(df[col_du_no], errors="coerce").fillna(0)
+                df[col_nhom_no] = pd.to_numeric(df[col_nhom_no], errors="coerce")
+                df[col_ngay_giai_ngan] = pd.to_datetime(df[col_ngay_giai_ngan], errors="coerce")
 
-        return df
+                def process_one_month(data, target_m):
+                    df_m = data[data["THANG"] == target_m].copy()
+                    ngay_bc = pd.to_datetime(target_m + "-01") + pd.offsets.MonthEnd(0)
+                    df_m["SO_NGAY"] = (ngay_bc - df_m[col_ngay_giai_ngan]).dt.days
 
-    df_t5=xu_ly(df_crm32_nay,df_crm4_nay,5)
-    df_t4=xu_ly(df_crm32_truoc,df_crm4_truoc,4)
+                    du_no = df_m.groupby([col_brcd, col_chi_nhanh], as_index=False).agg(DU_NO=(col_du_no, "sum"))
+                    du_no_qh = df_m[df_m[col_nhom_no].isin([2, 3, 4, 5])].groupby([col_brcd, col_chi_nhanh], as_index=False).agg(DU_NO_QH=(col_du_no, "sum"))
+                    du_no_xau = df_m[df_m[col_nhom_no].isin([3, 4, 5])].groupby([col_brcd, col_chi_nhanh], as_index=False).agg(DU_NO_XAU=(col_du_no, "sum"))
+                    
+                    g3 = df_m[(df_m["SO_NGAY"] >= 0) & (df_m["SO_NGAY"] <= 90) & (df_m[col_nhom_no].isin([2, 3, 4, 5]))].groupby([col_brcd, col_chi_nhanh], as_index=False).agg(GIAI_NGAN_3_THANG_QH=(col_du_no, "sum"))
+                    g6 = df_m[(df_m["SO_NGAY"] >= 0) & (df_m["SO_NGAY"] <= 180) & (df_m[col_nhom_no].isin([2, 3, 4, 5]))].groupby([col_brcd, col_chi_nhanh], as_index=False).agg(GIAI_NGAN_6_THANG_QH=(col_du_no, "sum"))
 
-    ###################################################
+                    res = du_no.merge(du_no_qh, on=[col_brcd, col_chi_nhanh], how="left").merge(du_no_xau, on=[col_brcd, col_chi_nhanh], how="left").merge(g3, on=[col_brcd, col_chi_nhanh], how="left").merge(g6, on=[col_brcd, col_chi_nhanh], how="left").fillna(0)
+                    res["TY_LE_QH"] = np.where(res["DU_NO"] != 0, res["DU_NO_QH"] / res["DU_NO"], 0)
+                    res["TY_LE_NPL"] = np.where(res["DU_NO"] != 0, res["DU_NO_XAU"] / res["DU_NO"], 0)
+                    return res
 
-    df_t5=df_t5.rename(columns={
-        "CIF_KH_VAY":"CIF_KH_VAY_NAY",
-        "SCHM_DESC":"SCHM_DESC_NAY",
-        "KHACH_HANG":"TEN_KH_T5"
-    })
+                bc_t_1_data = process_one_month(df, thang_t_1)
+                bc_t_data = process_one_month(df, thang_t)
 
-    df_t4=df_t4.rename(columns={
-        "CIF_KH_VAY":"CIF_KH_VAY_TRUOC",
-        "SCHM_DESC":"SCHM_DESC_TRUOC",
-        "KHACH_HANG":"TEN_KH_T4"
-    })
+                # Rename gộp bảng
+                bc_t_1_rename = bc_t_1_data.rename(columns={"DU_NO": "DU_NO_T_1", "DU_NO_QH": "DU_NO_QH_T_1", "DU_NO_XAU": "DU_NO_XAU_T_1", "TY_LE_QH": "TY_LE_QH_T_1", "TY_LE_NPL": "TY_LE_NPL_T_1", "GIAI_NGAN_3_THANG_QH": "GIAI_NGAN_3_THANG_QH_T_1", "GIAI_NGAN_6_THANG_QH": "GIAI_NGAN_6_THANG_QH_T_1"})
+                bc_t_rename = bc_t_data.rename(columns={"DU_NO": "DU_NO_T", "DU_NO_QH": "DU_NO_QH_T", "DU_NO_XAU": "DU_NO_XAU_T", "TY_LE_QH": "TY_LE_QH_T", "TY_LE_NPL": "TY_LE_NPL_T", "GIAI_NGAN_3_THANG_QH": "GIAI_NGAN_3_THANG_QH_T", "GIAI_NGAN_6_THANG_QH": "GIAI_NGAN_6_THANG_QH_T"})
 
-    df=df_t5.merge(
-        df_t4,
-        left_on=[
-            "CIF_KH_VAY_NAY",
-            "SCHM_DESC_NAY"
-        ],
-        right_on=[
-            "CIF_KH_VAY_TRUOC",
-            "SCHM_DESC_TRUOC"
-        ],
-        how="outer"
-    )
+                compare = bc_t_1_rename[[col_brcd, col_chi_nhanh, "DU_NO_T_1", "DU_NO_QH_T_1", "DU_NO_XAU_T_1", "TY_LE_QH_T_1", "TY_LE_NPL_T_1", "GIAI_NGAN_3_THANG_QH_T_1", "GIAI_NGAN_6_THANG_QH_T_1"]].merge(bc_t_rename[[col_brcd, col_chi_nhanh, "DU_NO_T", "DU_NO_QH_T", "DU_NO_XAU_T", "TY_LE_QH_T", "TY_LE_NPL_T", "GIAI_NGAN_3_THANG_QH_T", "GIAI_NGAN_6_THANG_QH_T"]], on=[col_brcd, col_chi_nhanh], how="outer").fillna(0)
+                
+                compare["SS_DU_NO"] = compare["DU_NO_T"] - compare["DU_NO_T_1"]
+                compare["SS_QH"] = compare["DU_NO_QH_T"] - compare["DU_NO_QH_T_1"]
+                compare["SS_NPL"] = compare["DU_NO_XAU_T"] - compare["DU_NO_XAU_T_1"]
+                compare["SS_TY_LE_QH"] = compare["TY_LE_QH_T"] - compare["TY_LE_QH_T_1"]
+                compare["SS_TY_LE_NPL"] = compare["TY_LE_NPL_T"] - compare["TY_LE_NPL_T_1"]
+                compare["SS_GIAI_NGAN_3_THANG_QH"] = compare["GIAI_NGAN_3_THANG_QH_T"] - compare["GIAI_NGAN_3_THANG_QH_T_1"]
+                compare["SS_GIAI_NGAN_6_THANG_QH"] = compare["GIAI_NGAN_6_THANG_QH_T"] - compare["GIAI_NGAN_6_THANG_QH_T_1"]
 
-    df=df.fillna(0)
+                # Cấu hình lại tên hiển thị đẹp mắt
+                final_df = compare.rename(columns={
+                    col_brcd: "BRCD", col_chi_nhanh: "CHI_NHANH",
+                    "DU_NO_T_1": "Dư nợ_T-1", "DU_NO_QH_T_1": "Dư nợ QH_T-1", "DU_NO_XAU_T_1": "Dư nợ xấu_T-1", "TY_LE_QH_T_1": "%QH_T-1", "TY_LE_NPL_T_1": "%NPL_T-1", "GIAI_NGAN_3_THANG_QH_T_1": "Giải ngân 3 tháng quá hạn_T-1", "GIAI_NGAN_6_THANG_QH_T_1": "Giải ngân 6 tháng quá hạn_T-1",
+                    "DU_NO_T": "Dư nợ_T", "DU_NO_QH_T": "Dư nợ QH_T", "DU_NO_XAU_T": "Dư nợ xấu_T", "TY_LE_QH_T": "%QH_T", "TY_LE_NPL_T": "%NPL_T", "GIAI_NGAN_3_THANG_QH_T": "Giải ngân 3 tháng quá hạn_T", "GIAI_NGAN_6_THANG_QH_T": "Giải ngân 6 tháng quá hạn_T",
+                    "SS_DU_NO": "Dư nợ", "SS_QH": "QH", "SS_NPL": "NPL", "SS_TY_LE_QH": "%QH", "SS_TY_LE_NPL": "%NPL", "SS_GIAI_NGAN_3_THANG_QH": "Giải ngân 3 tháng quá hạn", "SS_GIAI_NGAN_6_THANG_QH": "Giải ngân 6 tháng quá hạn"
+                })
 
-    df["CHENH_LECH"]=(
-        df["TONG_DU_NO_THANG_5"]
-        -df["TONG_DU_NO_THANG_4"]
-    )
+                # Chèn dòng TOTAL lên đầu
+                total_row = {"BRCD": "TOTAL", "CHI_NHANH": "Tổng cộng"}
+                money_cols = ["Dư nợ_T-1", "Dư nợ QH_T-1", "Dư nợ xấu_T-1", "Giải ngân 3 tháng quá hạn_T-1", "Giải ngân 6 tháng quá hạn_T-1", "Dư nợ_T", "Dư nợ QH_T", "Dư nợ xấu_T", "Giải ngân 3 tháng quá hạn_T", "Giải ngân 6 tháng quá hạn_T", "Dư nợ", "QH", "NPL", "Giải ngân 3 tháng quá hạn", "Giải ngân 6 tháng quá hạn"]
+                
+                for col in money_cols:
+                    total_row[col] = final_df[col].sum()
 
-    ###################################################
-    ## DPRR
-    ###################################################
+                total_row["%QH_T-1"] = total_row["Dư nợ QH_T-1"] / total_row["Dư nợ_T-1"] if total_row["Dư nợ_T-1"] != 0 else 0
+                total_row["%NPL_T-1"] = total_row["Dư nợ xấu_T-1"] / total_row["Dư nợ_T-1"] if total_row["Dư nợ_T-1"] != 0 else 0
+                total_row["%QH_T"] = total_row["Dư nợ QH_T"] / total_row["Dư nợ_T"] if total_row["Dư nợ_T"] != 0 else 0
+                total_row["%NPL_T"] = total_row["Dư nợ xấu_T"] / total_row["Dư nợ_T"] if total_row["Dư nợ_T"] != 0 else 0
+                total_row["%QH"] = total_row["%QH_T"] - total_row["%QH_T-1"]
+                total_row["%NPL"] = total_row["%NPL_T"] - total_row["%NPL_T-1"]
 
-    dprr=pd.read_excel(
-        dprr_file,
-        dtype={"CIF":str}
-    )
+                final_df = pd.concat([pd.DataFrame([total_row]), final_df], ignore_index=True)
+                
+                st.write("📊 Xem trước kết quả xử lý đối chiếu:")
+                st.dataframe(final_df.head(10))
 
-    dprr["PHAT_SINH_NO"]=pd.to_numeric(
-        dprr["PHAT_SINH_NO"],
-        errors="coerce"
-    ).fillna(0)
+                # Ghi dữ liệu vào openpyxl và thực hiện format đồ họa màu sắc như mã cũ
+                out_styled = io.BytesIO()
+                with pd.ExcelWriter(out_styled, engine="openpyxl") as writer:
+                    final_df.to_excel(writer, sheet_name="Tong hop", index=False, startrow=3)
+                    bc_t_1_data.to_excel(writer, sheet_name=f"Data {thang_t_1}", index=False)
+                    bc_t_data.to_excel(writer, sheet_name=f"Data {thang_t}", index=False)
 
-    df["CIF_KH_VAY_NAY"]=(
-        df["CIF_KH_VAY_NAY"]
-        .astype(str)
-        .str.replace(".0","",regex=False)
-        .str.strip()
-    )
+                # Load lại bộ đệm openpyxl để vẽ mỹ thuật
+                wb = load_workbook(out_styled)
+                ws = wb["Tong hop"]
+                max_row, max_col = ws.max_row, ws.max_column
 
-    dprr["CIF"]=(
-        dprr["CIF"]
-        .astype(str)
-        .str.replace(".0","",regex=False)
-        .str.strip()
-    )
+                # Thiết lập bảng màu chuẩn mực của ngân hàng
+                fill_yellow = PatternFill("solid", fgColor="FFFF00")
+                fill_green = PatternFill("solid", fgColor="C6E0B4")
+                fill_gray = PatternFill("solid", fgColor="D9D9D9")
+                fill_total = PatternFill("solid", fgColor="A9D08E")
+                font_red = Font(color="FF0000", bold=True)
+                font_bold = Font(bold=True)
+                align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                thin = Side(border_style="thin", color="000000")
+                border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    map_dprr=dprr.groupby("CIF")["PHAT_SINH_NO"].sum()
+                # Merge cell tiêu đề nhóm lớn cấp cao
+                ws.merge_cells("A1:B1"); ws.cell(1,1).value = ""
+                ws.merge_cells("C1:I1"); ws.cell(1,3).value = f"Tháng T-1 ({thang_t_1})"
+                ws.merge_cells("J1:P1"); ws.cell(1,10).value = f"Tháng T ({thang_t})"
+                ws.merge_cells("Q1:W1"); ws.cell(1,17).value = "So sánh (T) - (T-1)"
 
-    df["DPRR"]=df["CIF_KH_VAY_NAY"].map(map_dprr)
+                for col in range(3, 24): ws.cell(row=2, column=col).value = col - 2
 
-    df=df.sort_values(
-        "CHENH_LECH",
-        ascending=False
-    )
+                for row in [1, 2, 4]:
+                    for col in range(1, max_col + 1):
+                        cell = ws.cell(row=row, column=col)
+                        cell.alignment = align_center; cell.border = border; cell.font = font_bold
 
-    st.success("Hoàn thành")
+                for col in range(3, 17):
+                    ws.cell(1, col).fill = fill_yellow; ws.cell(2, col).fill = fill_yellow; ws.cell(4, col).fill = fill_yellow
+                for col in range(17, 24):
+                    ws.cell(1, col).fill = fill_green; ws.cell(2, col).fill = fill_green; ws.cell(4, col).fill = fill_green
+                for col in range(1, 3): ws.cell(4, col).fill = fill_gray
 
-    st.dataframe(df.head(100),use_container_width=True)
+                ws.cell(1, 3).font = font_red; ws.cell(1, 10).font = font_red; ws.cell(1, 17).font = font_red
 
-    excel=df.to_excel(index=False)
+                # Định dạng dữ liệu: Số và Tỷ lệ %
+                percent_cols = ["%QH_T-1", "%NPL_T-1", "%QH_T", "%NPL_T", "%QH", "%NPL"]
+                for row in range(1, max_row + 1):
+                    for col in range(1, max_col + 1):
+                        cell = ws.cell(row=row, column=col)
+                        cell.border = border
+                        if row >= 5: cell.alignment = align_center
 
-    import io
+                for row in range(5, max_row + 1): ws.cell(row=row, column=2).alignment = align_left
 
-    output=io.BytesIO()
+                for col in range(1, max_col + 1):
+                    header = ws.cell(row=4, column=col).value
+                    if header in percent_cols:
+                        for row in range(5, max_row + 1): ws.cell(row=row, column=col).number_format = "0.00%"
+                    else:
+                        if col >= 3:
+                            for row in range(5, max_row + 1): ws.cell(row=row, column=col).number_format = "#,##0"
 
-    with pd.ExcelWriter(output,engine="openpyxl") as writer:
-        df.to_excel(writer,index=False)
+                # Đổ màu cho dòng tổng cộng (TOTAL) ở dòng số 5
+                for col in range(1, max_col + 1):
+                    ws.cell(row=5, column=col).fill = fill_total; ws.cell(row=5, column=col).font = font_bold
 
-    st.download_button(
-        "Tải Excel",
-        data=output.getvalue(),
-        file_name="DU_NO_CO_CAU.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+                # Tự động gán độ rộng các cột cố định trực quan
+                for col in range(1, max_col + 1):
+                    if col == 1: ws.column_dimensions[get_column_letter(col)].width = 12
+                    elif col == 2: ws.column_dimensions[get_column_letter(col)].width = 30
+                    else: ws.column_dimensions[get_column_letter(col)].width = 18
+
+                ws.freeze_panes = "C5"
+                ws.auto_filter.ref = f"A4:{get_column_letter(max_col)}{max_row}"
+
+                # Xuất file hoàn thiện ra ngoài cho người dùng
+                final_output = io.BytesIO()
+                wb.save(final_output)
+                
+                st.success("🎉 Hoàn tất định dạng báo cáo mỹ thuật theo quy chuẩn!")
+                st.download_button("📥 Tải Báo Cáo Phân Tích Đã Tô Màu (.xlsx)", data=final_output.getvalue(), file_name=f"Bao_Cao_Thanh_Khoan_Thap_Màu_{thang_t}.xlsx")
+        else:
+            st.error("⚠️ Vui lòng cung cấp tệp dữ liệu CRM32 của cả 2 tháng!")
