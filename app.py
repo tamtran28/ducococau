@@ -86,18 +86,18 @@ def to_excel_download(df, sheet_name="Sheet1"):
 # ==========================================
 if menu == "Tiêu chí 1: Dư nợ cơ cấu":
     st.header("📌 Tiêu chí 1: Đối chiếu & Phân bổ Dư nợ cơ cấu")
-    st.info("💡 Điểm cải tiến: Hệ thống tự động chấp nhận cả file dạng .xls và .xlsx.")
+    st.info("💡 Hướng dẫn: Đăng tải đồng thời nhiều file mẫu CRM32 và CRM4 cho cả tháng này và tháng trước (Chấp nhận .xls và .xlsx).")
 
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("🗓️ Dữ liệu Tháng này (T)")
-        files_crm32_nay = st.file_uploader("Upload các file CRM32 Tháng này (.xls, .xlsx)", accept_multiple_files=True, key="t1_m32_n")
-        files_crm4_nay = st.file_uploader("Upload các file CRM4 Tháng này (.xls, .xlsx)", accept_multiple_files=True, key="t1_m4_n")
+        files_crm32_nay = st.file_uploader("Upload các file CRM32 Tháng này:", accept_multiple_files=True, key="t1_m32_n")
+        files_crm4_nay = st.file_uploader("Upload các file CRM4 Tháng này:", accept_multiple_files=True, key="t1_m4_n")
     
     with col2:
         st.subheader("🗓️ Dữ liệu Tháng trước (T-1)")
-        files_crm32_truoc = st.file_uploader("Upload các file CRM32 Tháng trước (.xls, .xlsx)", accept_multiple_files=True, key="t1_m32_t")
-        files_crm4_truoc = st.file_uploader("Upload các file CRM4 Tháng trước (.xls, .xlsx)", accept_multiple_files=True, key="t1_m4_t")
+        files_crm32_truoc = st.file_uploader("Upload các file CRM32 Tháng trước:", accept_multiple_files=True, key="t1_m32_t")
+        files_crm4_truoc = st.file_uploader("Upload các file CRM4 Tháng trước:", accept_multiple_files=True, key="t1_m4_t")
 
     st.subheader("📂 Dữ liệu Phụ trợ")
     file_sddp = st.file_uploader("Upload file Số dư dự phòng DPRR_T5 (.xls, .xlsx)", key="t1_sddp")
@@ -105,17 +105,32 @@ if menu == "Tiêu chí 1: Dư nợ cơ cấu":
     if st.button("🚀 Chạy Xử lý Tiêu chí 1"):
         if files_crm32_nay and files_crm4_nay and files_crm32_truoc and files_crm4_truoc and file_sddp:
             with st.spinner("Đang tính toán dư nợ cơ cấu..."):
-                # Đọc cấu trúc Tháng này bằng hàm smart reader
+                # Đọc cấu trúc bằng smart reader
                 df_crm32_nay = read_excel_smart(files_crm32_nay)
                 df_crm4_nay = read_excel_smart(files_crm4_nay)
-                
-                # Đọc cấu trúc Tháng trước bằng hàm smart reader
                 df_crm32_truoc = read_excel_smart(files_crm32_truoc)
                 df_crm4_truoc = read_excel_smart(files_crm4_truoc)
 
-                # Chuẩn hóa viết hoa toàn bộ tên cột để tránh lỗi lệch font hệ thống
+                # Viết hoa toàn bộ tên cột để đồng bộ hóa cấu trúc dữ liệu gộp
                 for _df in [df_crm32_nay, df_crm4_nay, df_crm32_truoc, df_crm4_truoc]:
                     _df.columns = _df.columns.str.strip().str.upper()
+
+                # --- LỚP BẢO VỆ CỘT (DATA SHIELD) TIÊU CHÍ 1 ---
+                req_crm32 = ["SCHM_DESC", "CUSTSEQLN"]
+                req_crm4 = ["CIF_KH_VAY", "DU_NO_PHAN_BO_QUY_DOI", "NHOM_NO", "KHACH_HANG"]
+                
+                err_32_nay = [c for c in req_crm32 if c not in df_crm32_nay.columns]
+                err_4_nay = [c for c in req_crm4 if c not in df_crm4_nay.columns]
+                err_32_trc = [c for c in req_crm32 if c not in df_crm32_truoc.columns]
+                err_4_trc = [c for c in req_crm4 if c not in df_crm4_truoc.columns]
+                
+                if err_32_nay or err_4_nay or err_32_trc or err_4_trc:
+                    st.error("❌ Phát hiện file upload thiếu cột hoặc dòng tiêu đề bị đặt sai vị trí!")
+                    if err_32_nay: st.write(f"• File CRM32 Tháng này thiếu cột: `{err_32_nay}`")
+                    if err_4_nay: st.write(f"• File CRM4 Tháng này thiếu cột: `{err_4_nay}`")
+                    if err_32_trc: st.write(f"• File CRM32 Tháng trước thiếu cột: `{err_32_trc}`")
+                    if err_4_trc: st.write(f"• File CRM4 Tháng trước thiếu cột: `{err_4_trc}`")
+                    st.stop()
 
                 # Xử lý tháng này
                 df_crm32_cc_nay = df_crm32_nay[df_crm32_nay["SCHM_DESC"].astype(str).str.upper().str.replace(r"\s+", " ", regex=True).str.contains("CO CAU", na=False)].drop_duplicates(subset=["CUSTSEQLN"])
@@ -137,16 +152,20 @@ if menu == "Tiêu chí 1: Dư nợ cơ cấu":
 
                 # Đối chiếu kết quả
                 df_kq_nay_rename = df_kq_nay.rename(columns={"CIF_KH_VAY": "CIF_KH_VAY_NAY","SCHM_DESC": "SCHM_DESC_NAY", "KHACH_HANG":"TEN_KH_T5"})
-                df_kq_truoc_rename = df_kq_truoc.rename(columns={"CIF_KH_VAY": "CIF_KH_VAY_TRUOC","SCHM_DESC": "SCHM_DESC_TRUOC", "KHACH_HANG":"TEN_KH_T4"}
-                )
+                df_kq_truoc_rename = df_kq_truoc.rename(columns={"CIF_KH_VAY": "CIF_KH_VAY_TRUOC","SCHM_DESC": "SCHM_DESC_TRUOC", "KHACH_HANG":"TEN_KH_T4"})
                 
                 df_doi_chieu = df_kq_nay_rename.merge(df_kq_truoc_rename, left_on=["CIF_KH_VAY_NAY", "SCHM_DESC_NAY"], right_on=["CIF_KH_VAY_TRUOC", "SCHM_DESC_TRUOC"], how="outer").fillna(0)
                 df_doi_chieu["CHENH_LECH"] = df_doi_chieu["TONG_DU_NO_THANG_5"] - df_doi_chieu["TONG_DU_NO_THANG_4"]
                 df_doi_chieu = df_doi_chieu.sort_values("CHENH_LECH", ascending=False)
 
-                # Đọc Map số dư dự phòng dùng Smart Reader
+                # Đọc Map số dư dự phòng
                 df_sddp = read_excel_smart(file_sddp)
                 df_sddp.columns = df_sddp.columns.str.strip().str.upper()
+                
+                if "CIF" not in df_sddp.columns or "PHAT_SINH_NO" not in df_sddp.columns:
+                    st.error("❌ File Phụ trợ SDDP phải chứa cột `CIF` và `PHAT_SINH_NO`!")
+                    st.stop()
+                    
                 df_sddp["PHAT_SINH_NO"] = pd.to_numeric(df_sddp["PHAT_SINH_NO"], errors="coerce").fillna(0)
                 
                 df_doi_chieu["CIF_KH_VAY_NAY"] = df_doi_chieu["CIF_KH_VAY_NAY"].astype(str).str.strip().str.replace(".0","", regex=False)
@@ -158,7 +177,6 @@ if menu == "Tiêu chí 1: Dư nợ cơ cấu":
                 st.success("🎉 Xử lý thành công!")
                 st.dataframe(df_doi_chieu)
 
-                # Cho phép người dùng tải xuống kết quả dưới định dạng excel
                 excel_data = to_excel_download(df_doi_chieu, sheet_name="DU_NO_CO_CAU")
                 st.download_button("📥 Tải File Kết Quả Excel", data=excel_data, file_name="DU_NO_CO_CAU_OUTPUT.xlsx")
         else:
@@ -181,8 +199,14 @@ elif menu == "Tiêu chí 2: Miễn giảm lãi":
     if st.button("🚀 Chạy Xử lý Tiêu chí 2"):
         if file_hlawint and file_noibang and file_ngoaibang and file_thulai:
             with st.spinner("Đang tổng hợp dữ liệu..."):
-                # 1. Khởi tạo dữ liệu từ HLAWINT dùng Smart Reader
+                # 1. Khởi tạo dữ liệu từ HLAWINT
                 df = read_excel_smart(file_hlawint)
+                df.columns = df.columns.str.strip().str.upper()
+                
+                if not {"SOL_ID", "SOL_DESC", "CIF_ID", "CUST_NAME", "INTAMT_VND", "LY_DO"}.issubset(df.columns):
+                    st.error("❌ File HLAWINT không đúng mẫu hoặc thiếu cột (SOL_ID, SOL_DESC, CIF_ID, CUST_NAME, INTAMT_VND, LY_DO)!")
+                    st.stop()
+                    
                 cols = ['SOL_ID','SOL_DESC','CIF_ID','CUST_NAME','INTAMT_VND','LY_DO']
                 df = df[cols]
                 
@@ -191,22 +215,34 @@ elif menu == "Tiêu chí 2: Miễn giảm lãi":
                 sum_intamt = df.groupby('CIF_ID', as_index=False)['INTAMT_VND'].sum()
                 result = pd.merge(sum_intamt, df_unique[['CIF_ID','SOL_ID','SOL_DESC','CUST_NAME','LY_DO']], on='CIF_ID', how='left')
 
-                # 2. Map file ngoại bảng dùng Smart Reader
+                # 2. Map file ngoại bảng
                 dprr = read_excel_smart(file_ngoaibang)
-                dprr['Số tiền thu'] = pd.to_numeric(dprr['Số tiền thu'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-                dprr_sum = dprr.groupby('CIF 9 SO', as_index=False)['Số tiền thu'].sum().rename(columns={'Số tiền thu':'Thu_ngoai_bang', 'CIF 9 SO':'CIF_ID'})
+                dprr.columns = dprr.columns.str.strip().str.upper()
+                if "CIF 9 SO" not in dprr.columns or "SỐ TIỀN THU" not in dprr.columns:
+                    st.error("❌ File ngoại bảng thiếu cột `CIF 9 SO` hoặc `Số tiền thu`!")
+                    st.stop()
+                dprr['SỐ TIỀN THU'] = pd.to_numeric(dprr['SỐ TIỀN THU'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                dprr_sum = dprr.groupby('CIF 9 SO', as_index=False)['SỐ TIỀN THU'].sum().rename(columns={'SỐ TIỀN THU':'Thu_ngoai_bang', 'CIF 9 SO':'CIF_ID'})
                 result = result.merge(dprr_sum, on='CIF_ID', how='left')
 
-                # 3. Map file nội bảng (Thu gốc) dùng Smart Reader
+                # 3. Map file nội bảng (Thu gốc)
                 thu_goc = read_excel_smart(file_noibang)
-                thu_goc['Số tiền thu'] = pd.to_numeric(thu_goc['Số tiền thu'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-                thu_goc_sum = thu_goc.groupby('CIF 9 SO', as_index=False)['Số tiền thu'].sum().rename(columns={'Số tiền thu':'Thu_goc_trong_thang', 'CIF 9 SO':'CIF_ID'})
+                thu_goc.columns = thu_goc.columns.str.strip().str.upper()
+                if "CIF 9 SO" not in thu_goc.columns or "SỐ TIỀN THU" not in thu_goc.columns:
+                    st.error("❌ File nội bảng thiếu cột `CIF 9 SO` hoặc `Số tiền thu`!")
+                    st.stop()
+                thu_goc['SỐ TIỀN THU'] = pd.to_numeric(thu_goc['SỐ TIỀN THU'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                thu_goc_sum = thu_goc.groupby('CIF 9 SO', as_index=False)['SỐ TIỀN THU'].sum().rename(columns={'SỐ TIỀN THU':'Thu_goc_trong_thang', 'CIF 9 SO':'CIF_ID'})
                 result = result.merge(thu_goc_sum, on='CIF_ID', how='left')
 
-                # 4. Map file thu lãi dùng Smart Reader
+                # 4. Map file thu lãi
                 thu_lai = read_excel_smart(file_thulai)
-                thu_lai['Số tiền thu'] = pd.to_numeric(thu_lai['Số tiền thu'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-                thu_lai_sum = thu_lai.groupby('CIF 9 SO', as_index=False)['Số tiền thu'].sum().rename(columns={'Số tiền thu':'Thu_lai_trong_thang', 'CIF 9 SO':'CIF_ID'})
+                thu_lai.columns = thu_lai.columns.str.strip().str.upper()
+                if "CIF 9 SO" not in thu_lai.columns or "SỐ TIỀN THU" not in thu_lai.columns:
+                    st.error("❌ File thu lãi thiếu cột `CIF 9 SO` hoặc `Số tiền thu`!")
+                    st.stop()
+                thu_lai['SỐ TIỀN THU'] = pd.to_numeric(thu_lai['SỐ TIỀN THU'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                thu_lai_sum = thu_lai.groupby('CIF 9 SO', as_index=False)['SỐ TIỀN THU'].sum().rename(columns={'SỐ TIỀN THU':'Thu_lai_trong_thang', 'CIF 9 SO':'CIF_ID'})
                 result = result.merge(thu_lai_sum, on='CIF_ID', how='left')
 
                 # Tính tổng thu và sinh cột theo form báo cáo định sẵn
@@ -221,7 +257,6 @@ elif menu == "Tiêu chí 2: Miễn giảm lãi":
                 result = result.merge(muc6, on='CIF_ID', how='left')
                 result['check_tongMGL'] = (result['Mien_goc'] + result['Mien_lai_trong_han'] + result['Mien_lai_qua_han'] + result['Mien_lai_phat']) - result['muc6']
 
-                # Sắp xếp đúng cấu trúc cột đầu ra mẫu
                 order_cols = ['SOL_ID','SOL_DESC','CIF_ID','CUST_NAME','Tong_thu','Thu_ngoai_bang','Thu_goc_trong_thang','Thu_lai_trong_thang','Thu_thieu_lai_trong_han','Mien_goc','Mien_lai_trong_han','Mien_lai_qua_han','Mien_lai_phat','Tham_quyen_phe_duyet','Ghi_chu','Con_ton','Ty_quan','So_thu_phi','muc6','check_tongMGL','note']
                 result = result[order_cols]
 
@@ -244,9 +279,7 @@ elif menu == "Tiêu chí 3: Lũy kế nợ quá hạn":
     thang_bat_dau = st.sidebar.text_input("Từ tháng (YYYY-MM)", "2026-01")
     thang_ket_thuc = st.sidebar.text_input("Đến tháng (YYYY-MM)", "2026-05")
 
-    # Sinh danh sách các tháng động
     ds_thang = pd.period_range(start=thang_bat_dau, end=thang_ket_thuc, freq="M").astype(str).tolist()
-    
     st.markdown(f"**Yêu cầu nạp file dữ liệu CRM32 cho từng tháng trong chuỗi:** `{ds_thang}`")
     
     uploaded_months_data = {}
@@ -262,7 +295,6 @@ elif menu == "Tiêu chí 3: Lũy kế nợ quá hạn":
                 st.warning(f"Chưa có tệp dữ liệu cho tháng {m}!")
                 valid = False
             else:
-                # Đọc tích hợp nhiều file của từng tháng bằng Smart Reader
                 df_m_temp = read_excel_smart(uploaded_months_data[m], target_month=m)
                 if not df_m_temp.empty:
                     all_month_data.append(df_m_temp)
@@ -274,6 +306,13 @@ elif menu == "Tiêu chí 3: Lũy kế nợ quá hạn":
                 
                 col_brcd, col_chi_nhanh, col_du_no, col_nhom_no, col_ngay_giai_ngan = "BRCD", "CHI_NHANH", "DU_NO_QUY_DOI", "NHOM_NO_THEO_CIF", "NGAY_GIAI_NGAN"
                 
+                # --- LỚP BẢO VỆ TRÁNH LỖI KEYERROR ---
+                missing_cols = [c for c in [col_brcd, col_chi_nhanh, col_du_no, col_nhom_no, col_ngay_giai_ngan] if c not in df.columns]
+                if missing_cols:
+                    st.error(f"❌ Các file bạn upload bị thiếu hoặc sai lệch tên các cột sau: `{missing_cols}`")
+                    st.info("Hãy kiểm tra lại xem cấu trúc tiêu đề của các file có thống nhất hay không.")
+                    st.stop()
+
                 df[col_brcd] = df[col_brcd].astype(str).str.strip()
                 df[col_chi_nhanh] = df[col_chi_nhanh].astype(str).str.strip()
                 df[col_du_no] = pd.to_numeric(df[col_du_no], errors="coerce").fillna(0)
@@ -300,11 +339,10 @@ elif menu == "Tiêu chí 3: Lũy kế nợ quá hạn":
                 bao_cao_all_month["THANG_DATE"] = pd.to_datetime(bao_cao_all_month["THANG"] + "-01")
                 bao_cao_all_month = bao_cao_all_month.sort_values(by=[col_brcd, "THANG_DATE"])
 
-                # Cấp số cộng lũy kế tịnh tiến (Đã xử lý bỏ nháy kép thừa)
+                # Lũy kế tịnh tiến (Xóa hoàn toàn dấu nháy kép thừa gây lỗi cú pháp)
                 bao_cao_all_month["LUY_KE_GIAI_NGAN_3_THANG_QH"] = bao_cao_all_month.groupby([col_brcd, col_chi_nhanh])["GIAI_NGAN_3_THANG_QH"].cumsum()
-                bao_cao_all_month["LUY_KE_GIAI_NGAN_6_THANG_QH"] = bao_cao_all_month.groupby([col_brcd, col_chi_nhanh])["GIAI_NGAN_6_THANG_QH"].cumsum()
+                bao_cao_all_month["LUY_KE_GIAI_NGAN_6_THANG_QH"] = bao_cao_all_month.groupby([col_brcd, col_chi_nhanh"])["GIAI_NGAN_6_THANG_QH"].cumsum()
 
-                # Đổi trục Pivot làm báo cáo ngang gọn đẹp
                 pivot_luy_ke = bao_cao_all_month.pivot_table(index=[col_brcd, col_chi_nhanh], columns="THANG", values=["GIAI_NGAN_3_THANG_QH", "GIAI_NGAN_6_THANG_QH", "LUY_KE_GIAI_NGAN_3_THANG_QH", "LUY_KE_GIAI_NGAN_6_THANG_QH"], aggfunc="sum")
                 pivot_luy_ke.columns = [f"{ct}_{th}" for ct, th in pivot_luy_ke.columns]
                 pivot_luy_ke = pivot_luy_ke.reset_index()
@@ -312,7 +350,6 @@ elif menu == "Tiêu chí 3: Lũy kế nợ quá hạn":
                 st.success("📊 Bảng dữ liệu biến động ngang thu được:")
                 st.dataframe(pivot_luy_ke)
 
-                # Xuất Workbook đa dạng Sheet cho khách hàng download
                 out_bytes = io.BytesIO()
                 with pd.ExcelWriter(out_bytes, engine="openpyxl") as wr:
                     bao_cao_all_month.to_excel(wr, sheet_name="Data luy ke theo thang", index=False)
@@ -321,7 +358,7 @@ elif menu == "Tiêu chí 3: Lũy kế nợ quá hạn":
                 st.download_button("📥 Tải File Lũy Kế Đa Bản Tấm (.xlsx)", data=out_bytes.getvalue(), file_name=f"Luy_Ke_Qua_Han_{thang_bat_dau}_To_{thang_ket_thuc}.xlsx")
 
 # ==========================================
-# TIÊU CHÍ 4: THANH KHOẢN THẤP & AUTO STYLING EXCEL
+# TIÊU CHÍ 4: THANH KHOẢN THẤP
 # ==========================================
 elif menu == "Tiêu chí 4: Tín dụng thanh khoản thấp":
     st.header("📌 Tiêu chí 4: So sánh & Tự động tô màu Báo cáo Thanh khoản thấp")
@@ -330,7 +367,6 @@ elif menu == "Tiêu chí 4: Tín dụng thanh khoản thấp":
     st.sidebar.subheader("Thiết lập tháng đánh giá")
     thang_t_input = st.sidebar.text_input("Nhập tháng T (YYYY-MM)", "2026-04")
 
-    # Tự quy đổi tháng liên kề liền trước
     thang_t_date = pd.to_datetime(thang_t_input + "-01")
     thang_t_1_date = thang_t_date - pd.DateOffset(months=1)
     thang_t = thang_t_date.strftime("%Y-%m")
@@ -340,21 +376,29 @@ elif menu == "Tiêu chí 4: Tín dụng thanh khoản thấp":
 
     col1, col2 = st.columns(2)
     with col1:
-        files_tc4_t = st.file_uploader(f"Upload các file CRM32 của Tháng T ({thang_t})", accept_multiple_files=True, key="t4_t")
+        files_t = st.file_uploader(f"Upload các file CRM32 của Tháng T ({thang_t})", accept_multiple_files=True, key="t4_t")
     with col2:
-        files_tc4_t1 = st.file_uploader(f"Upload các file CRM32 của Tháng T-1 ({thang_t_1})", accept_multiple_files=True, key="t4_t1")
+        files_t_1 = st.file_uploader(f"Upload các file CRM32 của Tháng T-1 ({thang_t_1})", accept_multiple_files=True, key="t4_t1")
 
     if st.button("🚀 Chạy Đối Chiếu & Thiết Kế Form Đẹp"):
-        if files_tc4_t and files_tc4_t1:
+        if files_t and files_t_1:
             with st.spinner("Đang biên tập & thiết kế format bảng Excel tự động..."):
-                # Đọc xử lý bằng Smart Reader chấp nhận cả .xls/.xlsx
-                df_t = read_excel_smart(files_tc4_t, target_month=thang_t)
-                df_t_1 = read_excel_smart(files_tc4_t1, target_month=thang_t_1)
+                df_t = read_excel_smart(files_t, target_month=thang_t)
+                df_t_1 = read_excel_smart(files_t_1, target_month=thang_t_1)
 
                 df = pd.concat([df_t_1, df_t], ignore_index=True)
                 df.columns = df.columns.str.strip().str.upper()
 
                 col_brcd, col_chi_nhanh, col_du_no, col_nhom_no, col_ngay_giai_ngan = "BRCD", "CHI_NHANH", "DU_NO_QUY_DOI", "NHOM_NO_THEO_CIF", "NGAY_GIAI_NGAN"
+                
+                # --- LỚP BẢO VỆ TRÁNH LỖI KEYERROR ---
+                missing_cols = [c for c in [col_brcd, col_chi_nhanh, col_du_no, col_nhom_no, col_ngay_giai_ngan] if c not in df.columns]
+                if missing_cols:
+                    st.error(f"❌ Các file bạn upload bị thiếu hoặc sai lệch tên các cột sau: `{missing_cols}`")
+                    st.markdown("💡 Danh sách tất cả các cột hệ thống hiện đọc được trong file của bạn là:")
+                    st.code(list(df.columns))
+                    st.stop()
+
                 df[col_brcd] = df[col_brcd].astype(str).str.strip()
                 df[col_chi_nhanh] = df[col_chi_nhanh].astype(str).str.strip()
                 df[col_du_no] = pd.to_numeric(df[col_du_no], errors="coerce").fillna(0)
@@ -381,7 +425,6 @@ elif menu == "Tiêu chí 4: Tín dụng thanh khoản thấp":
                 bc_t_1_data = process_one_month(df, thang_t_1)
                 bc_t_data = process_one_month(df, thang_t)
 
-                # Rename gộp bảng
                 bc_t_1_rename = bc_t_1_data.rename(columns={"DU_NO": "DU_NO_T_1", "DU_NO_QH": "DU_NO_QH_T_1", "DU_NO_XAU": "DU_NO_XAU_T_1", "TY_LE_QH": "TY_LE_QH_T_1", "TY_LE_NPL": "TY_LE_NPL_T_1", "GIAI_NGAN_3_THANG_QH": "GIAI_NGAN_3_THANG_QH_T_1", "GIAI_NGAN_6_THANG_QH": "GIAI_NGAN_6_THANG_QH_T_1"})
                 bc_t_rename = bc_t_data.rename(columns={"DU_NO": "DU_NO_T", "DU_NO_QH": "DU_NO_QH_T", "DU_NO_XAU": "DU_NO_XAU_T", "TY_LE_QH": "TY_LE_QH_T", "TY_LE_NPL": "TY_LE_NPL_T", "GIAI_NGAN_3_THANG_QH": "GIAI_NGAN_3_THANG_QH_T", "GIAI_NGAN_6_THANG_QH": "GIAI_NGAN_6_THANG_QH_T"})
 
@@ -395,7 +438,6 @@ elif menu == "Tiêu chí 4: Tín dụng thanh khoản thấp":
                 compare["SS_GIAI_NGAN_3_THANG_QH"] = compare["GIAI_NGAN_3_THANG_QH_T"] - compare["GIAI_NGAN_3_THANG_QH_T_1"]
                 compare["SS_GIAI_NGAN_6_THANG_QH"] = compare["GIAI_NGAN_6_THANG_QH_T"] - compare["GIAI_NGAN_6_THANG_QH_T_1"]
 
-                # Cấu hình lại tên hiển thị đẹp mắt
                 final_df = compare.rename(columns={
                     col_brcd: "BRCD", col_chi_nhanh: "CHI_NHANH",
                     "DU_NO_T_1": "Dư nợ_T-1", "DU_NO_QH_T_1": "Dư nợ QH_T-1", "DU_NO_XAU_T_1": "Dư nợ xấu_T-1", "TY_LE_QH_T_1": "%QH_T-1", "TY_LE_NPL_T_1": "%NPL_T-1", "GIAI_NGAN_3_THANG_QH_T_1": "Giải ngân 3 tháng quá hạn_T-1", "GIAI_NGAN_6_THANG_QH_T_1": "Giải ngân 6 tháng quá hạn_T-1",
@@ -403,7 +445,6 @@ elif menu == "Tiêu chí 4: Tín dụng thanh khoản thấp":
                     "SS_DU_NO": "Dư nợ", "SS_QH": "QH", "SS_NPL": "NPL", "SS_TY_LE_QH": "%QH", "SS_TY_LE_NPL": "%NPL", "SS_GIAI_NGAN_3_THANG_QH": "Giải ngân 3 tháng quá hạn", "SS_GIAI_NGAN_6_THANG_QH": "Giải ngân 6 tháng quá hạn"
                 })
 
-                # Chèn dòng TOTAL lên đầu
                 total_row = {"BRCD": "TOTAL", "CHI_NHANH": "Tổng cộng"}
                 money_cols = ["Dư nợ_T-1", "Dư nợ QH_T-1", "Dư nợ xấu_T-1", "Giải ngân 3 tháng quá hạn_T-1", "Giải ngân 6 tháng quá hạn_T-1", "Dư nợ_T", "Dư nợ QH_T", "Dư nợ xấu_T", "Giải ngân 3 tháng quá hạn_T", "Giải ngân 6 tháng quá hạn_T", "Dư nợ", "QH", "NPL", "Giải ngân 3 tháng quá hạn", "Giải ngân 6 tháng quá hạn"]
                 
@@ -422,19 +463,16 @@ elif menu == "Tiêu chí 4: Tín dụng thanh khoản thấp":
                 st.write("📊 Xem trước kết quả xử lý đối chiếu:")
                 st.dataframe(final_df.head(10))
 
-                # Ghi dữ liệu vào openpyxl và thực hiện format đồ họa màu sắc như mã cũ
                 out_styled = io.BytesIO()
                 with pd.ExcelWriter(out_styled, engine="openpyxl") as writer:
                     final_df.to_excel(writer, sheet_name="Tong hop", index=False, startrow=3)
                     bc_t_1_data.to_excel(writer, sheet_name=f"Data {thang_t_1}", index=False)
                     bc_t_data.to_excel(writer, sheet_name=f"Data {thang_t}", index=False)
 
-                # Load lại bộ đệm openpyxl để vẽ mỹ thuật
                 wb = load_workbook(out_styled)
                 ws = wb["Tong hop"]
                 max_row, max_col = ws.max_row, ws.max_column
 
-                # Thiết lập bảng màu chuẩn mực của ngân hàng
                 fill_yellow = PatternFill("solid", fgColor="FFFF00")
                 fill_green = PatternFill("solid", fgColor="C6E0B4")
                 fill_gray = PatternFill("solid", fgColor="D9D9D9")
@@ -446,7 +484,6 @@ elif menu == "Tiêu chí 4: Tín dụng thanh khoản thấp":
                 thin = Side(border_style="thin", color="000000")
                 border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-                # Merge cell tiêu đề nhóm lớn cấp cao
                 ws.merge_cells("A1:B1"); ws.cell(1,1).value = ""
                 ws.merge_cells("C1:I1"); ws.cell(1,3).value = f"Tháng T-1 ({thang_t_1})"
                 ws.merge_cells("J1:P1"); ws.cell(1,10).value = f"Tháng T ({thang_t})"
@@ -467,7 +504,6 @@ elif menu == "Tiêu chí 4: Tín dụng thanh khoản thấp":
 
                 ws.cell(1, 3).font = font_red; ws.cell(1, 10).font = font_red; ws.cell(1, 17).font = font_red
 
-                # Định dạng dữ liệu: Số và Tỷ lệ %
                 percent_cols = ["%QH_T-1", "%NPL_T-1", "%QH_T", "%NPL_T", "%QH", "%NPL"]
                 for row in range(1, max_row + 1):
                     for col in range(1, max_col + 1):
@@ -485,11 +521,9 @@ elif menu == "Tiêu chí 4: Tín dụng thanh khoản thấp":
                         if col >= 3:
                             for row in range(5, max_row + 1): ws.cell(row=row, column=col).number_format = "#,##0"
 
-                # Đổ màu cho dòng tổng cộng (TOTAL) ở dòng số 5
                 for col in range(1, max_col + 1):
                     ws.cell(row=5, column=col).fill = fill_total; ws.cell(row=5, column=col).font = font_bold
 
-                # Tự động gán độ rộng các cột cố định trực quan
                 for col in range(1, max_col + 1):
                     if col == 1: ws.column_dimensions[get_column_letter(col)].width = 12
                     elif col == 2: ws.column_dimensions[get_column_letter(col)].width = 30
@@ -498,7 +532,6 @@ elif menu == "Tiêu chí 4: Tín dụng thanh khoản thấp":
                 ws.freeze_panes = "C5"
                 ws.auto_filter.ref = f"A4:{get_column_letter(max_col)}{max_row}"
 
-                # Xuất file hoàn thiện ra ngoài cho người dùng
                 final_output = io.BytesIO()
                 wb.save(final_output)
                 
