@@ -248,9 +248,10 @@ elif menu == "Tiêu chí 3: Lũy kế nợ quá hạn":
                 bao_cao_all_month = bao_cao_all_month.sort_values(by=[col_brcd, "THANG_DATE"])
 
                 # Cấp số cộng lũy kế tịnh tiến
-                bao_cao_all_month["LUY_KE_GIAI_NGAN_3_THANG_QH"] = bao_cao_all_month.groupby([col_brcd, col_chi_nhanh"])["GIAI_NGAN_3_THANG_QH"].cumsum()
-                bao_cao_all_month["LUY_KE_GIAI_NGAN_6_THANG_QH"] = bao_cao_all_month.groupby([col_brcd, col_chi_nhanh"])["GIAI_NGAN_6_THANG_QH"].cumsum()
-
+                bao_cao_all_month["LUY_KE_GIAI_NGAN_3_THANG_QH"] = bao_cao_all_month.groupby([col_brcd, col_chi_nhanh])["GIAI_NGAN_3_THANG_QH"].cumsum()
+                bao_cao_all_month["LUY_KE_GIAI_NGAN_6_THANG_QH"] = bao_cao_all_month.groupby([col_brcd, col_chi_nhanh])["GIAI_NGAN_6_THANG_QH"].cumsum()
+              
+    
                 # Đổi trục Pivot làm báo cáo ngang gọn đẹp
                 pivot_luy_ke = bao_cao_all_month.pivot_table(index=[col_brcd, col_chi_nhanh], columns="THANG", values=["GIAI_NGAN_3_THANG_QH", "GIAI_NGAN_6_THANG_QH", "LUY_KE_GIAI_NGAN_3_THANG_QH", "LUY_KE_GIAI_NGAN_6_THANG_QH"], aggfunc="sum")
                 pivot_luy_ke.columns = [f"{ct}_{th}" for ct, th in pivot_luy_ke.columns]
