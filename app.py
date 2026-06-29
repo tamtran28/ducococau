@@ -105,17 +105,15 @@ if menu == "Tiêu chí 1: Dư nợ cơ cấu":
     if st.button("🚀 Chạy Xử lý Tiêu chí 1"):
         if files_crm32_nay and files_crm4_nay and files_crm32_truoc and files_crm4_truoc and file_sddp:
             with st.spinner("Đang tính toán dư nợ cơ cấu..."):
-                # Đọc cấu trúc bằng smart reader
                 df_crm32_nay = read_excel_smart(files_crm32_nay)
                 df_crm4_nay = read_excel_smart(files_crm4_nay)
                 df_crm32_truoc = read_excel_smart(files_crm32_truoc)
                 df_crm4_truoc = read_excel_smart(files_crm4_truoc)
 
-                # Viết hoa toàn bộ tên cột để đồng bộ hóa cấu trúc dữ liệu gộp
                 for _df in [df_crm32_nay, df_crm4_nay, df_crm32_truoc, df_crm4_truoc]:
                     _df.columns = _df.columns.str.strip().str.upper()
 
-                # --- LỚP BẢO VỆ CỘT (DATA SHIELD) TIÊU CHÍ 1 ---
+                # --- LỚP BẢO VỆ CỘT TIÊU CHÍ 1 ---
                 req_crm32 = ["SCHM_DESC", "CUSTSEQLN"]
                 req_crm4 = ["CIF_KH_VAY", "DU_NO_PHAN_BO_QUY_DOI", "NHOM_NO", "KHACH_HANG"]
                 
@@ -257,6 +255,7 @@ elif menu == "Tiêu chí 2: Miễn giảm lãi":
                 result = result.merge(muc6, on='CIF_ID', how='left')
                 result['check_tongMGL'] = (result['Mien_goc'] + result['Mien_lai_trong_han'] + result['Mien_lai_qua_han'] + result['Mien_lai_phat']) - result['muc6']
 
+                # Sắp xếp cấu trúc cột
                 order_cols = ['SOL_ID','SOL_DESC','CIF_ID','CUST_NAME','Tong_thu','Thu_ngoai_bang','Thu_goc_trong_thang','Thu_lai_trong_thang','Thu_thieu_lai_trong_han','Mien_goc','Mien_lai_trong_han','Mien_lai_qua_han','Mien_lai_phat','Tham_quyen_phe_duyet','Ghi_chu','Con_ton','Ty_quan','So_thu_phi','muc6','check_tongMGL','note']
                 result = result[order_cols]
 
@@ -306,11 +305,12 @@ elif menu == "Tiêu chí 3: Lũy kế nợ quá hạn":
                 
                 col_brcd, col_chi_nhanh, col_du_no, col_nhom_no, col_ngay_giai_ngan = "BRCD", "CHI_NHANH", "DU_NO_QUY_DOI", "NHOM_NO_THEO_CIF", "NGAY_GIAI_NGAN"
                 
-                # --- LỚP BẢO VỆ TRÁNH LỖI KEYERROR ---
+                # --- LỚP BẢO VỆ PHÒNG LỖI THIẾU CỘT ---
                 missing_cols = [c for c in [col_brcd, col_chi_nhanh, col_du_no, col_nhom_no, col_ngay_giai_ngan] if c not in df.columns]
                 if missing_cols:
                     st.error(f"❌ Các file bạn upload bị thiếu hoặc sai lệch tên các cột sau: `{missing_cols}`")
-                    st.info("Hãy kiểm tra lại xem cấu trúc tiêu đề của các file có thống nhất hay không.")
+                    st.markdown("💡 Danh sách tất cả các cột hệ thống hiện đọc được trong file của bạn là:")
+                    st.code(list(df.columns))
                     st.stop()
 
                 df[col_brcd] = df[col_brcd].astype(str).str.strip()
@@ -339,9 +339,9 @@ elif menu == "Tiêu chí 3: Lũy kế nợ quá hạn":
                 bao_cao_all_month["THANG_DATE"] = pd.to_datetime(bao_cao_all_month["THANG"] + "-01")
                 bao_cao_all_month = bao_cao_all_month.sort_values(by=[col_brcd, "THANG_DATE"])
 
-                # Lũy kế tịnh tiến (Xóa hoàn toàn dấu nháy kép thừa gây lỗi cú pháp)
+                # --- ĐÃ SỬA LỖI TYPO DẤU NHÁY KÉP TẠI ĐÂY ---
                 bao_cao_all_month["LUY_KE_GIAI_NGAN_3_THANG_QH"] = bao_cao_all_month.groupby([col_brcd, col_chi_nhanh])["GIAI_NGAN_3_THANG_QH"].cumsum()
-                bao_cao_all_month["LUY_KE_GIAI_NGAN_6_THANG_QH"] = bao_cao_all_month.groupby([col_brcd, col_chi_nhanh"])["GIAI_NGAN_6_THANG_QH"].cumsum()
+                bao_cao_all_month["LUY_KE_GIAI_NGAN_6_THANG_QH"] = bao_cao_all_month.groupby([col_brcd, col_chi_nhanh])["GIAI_NGAN_6_THANG_QH"].cumsum()
 
                 pivot_luy_ke = bao_cao_all_month.pivot_table(index=[col_brcd, col_chi_nhanh], columns="THANG", values=["GIAI_NGAN_3_THANG_QH", "GIAI_NGAN_6_THANG_QH", "LUY_KE_GIAI_NGAN_3_THANG_QH", "LUY_KE_GIAI_NGAN_6_THANG_QH"], aggfunc="sum")
                 pivot_luy_ke.columns = [f"{ct}_{th}" for ct, th in pivot_luy_ke.columns]
